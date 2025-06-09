@@ -1,0 +1,33 @@
+services:
+  bitcoin-tracker:
+    build: .
+    container_name: bitcoin-price-tracker
+    restart: unless-stopped
+    volumes:
+      - bitcoin_data:/app/data
+      - bitcoin_logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+
+  web-dashboard:
+    build: .
+    container_name: bitcoin-web-dashboard
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:5000:5000"
+    volumes:
+      - bitcoin_data:/app/data:ro
+      - ./bitcoin_tracker.py:/app/bitcoin_tracker.py:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=UTC
+    command: python web_dashboard.py
+    depends_on:
+      - bitcoin-tracker
+
+volumes:
+  bitcoin_data:
+    driver: local
+  bitcoin_logs:
+    driver: local

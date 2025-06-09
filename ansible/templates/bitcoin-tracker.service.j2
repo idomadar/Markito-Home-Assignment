@@ -1,0 +1,18 @@
+[Unit]
+Description=Bitcoin Price Tracker Docker Compose Service
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ project_dir }}
+ExecStart=/usr/local/bin/docker-compose up -d
+ExecStop=/usr/local/bin/docker-compose down
+ExecReload=/usr/local/bin/docker-compose restart
+TimeoutStartSec=0
+User={{ ansible_user_id }}
+Group={{ ansible_user_gid }}
+
+[Install]
+WantedBy=multi-user.target

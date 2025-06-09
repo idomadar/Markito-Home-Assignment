@@ -1,0 +1,146 @@
+---
+- name: Deploy Bitcoin Price Tracker
+  hosts: localhost
+  connection: local
+  become: yes
+  vars:
+    project_dir: "{{ ansible_env.HOME }}/bitcoin-tracker"
+    docker_compose_version: "2.21.0"
+    
+  tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install required system packages
+      package:
+        name:
+          - curl
+          - wget
+          - git
+          - python3
+          - python3-pip
+        state: present
+
+    - name: Create project directory
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
+        mode: '0755'
+
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Install Docker if not present
+      include_tasks: install-docker.yml
+      when: docker_check.rc != 0
+
+    - name: Ensure Docker service is started and enabled
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user_id }}"
+        groups: docker
+        append: yes
+
+    - name: Install Docker Compose
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/v{{ docker_compose_version }}/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create symbolic link for docker-compose
+      file:
+        src: /usr/local/bin/docker-compose
+        dest: /usr/bin/docker-compose
+        state: link
+
+    - name: Copy application files
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ project_dir }}/{{ item.dest }}"
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
+        mode: '0644'
+      loop:
+        - { src: "../bitcoin_tracker.py", dest: "bitcoin_tracker.py" }
+        - { src: "../requirements.txt", dest: "requirements.txt" }
+        - { src: "../Dockerfile", dest: "Dockerfile" }
+        - { src: "../docker-compose.yml", dest: "docker-compose.yml" }
+        - { src: "../web_dashboard.py", dest: "web_dashboard.py" }
+
+    - name: Copy templates directory
+      copy:
+        src: "../templates/"
+        dest: "{{ project_dir }}/templates/"
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_gid }}"
+        mode: '0644'
+    
+    - name: Stop existing containers (if running)
+      command: docker-compose down
+      args:
+        chdir: "{{ project_dir }}"
+      ignore_errors: true
+
+    - name: Build and start Bitcoin tracker containers
+      command: docker-compose up -d --build
+      args:
+        chdir: "{{ project_dir }}"
+      become_user: "{{ ansible_user_id }}"
+
+    - name: Wait for containers to be healthy
+      command: docker-compose ps
+      args:
+        chdir: "{{ project_dir }}"
+      register: container_status
+      until: "'Up' in container_status.stdout"
+      retries: 12
+      delay: 10
+
+    - name: Display container status
+      debug:
+        var: container_status.stdout_lines
+
+    - name: Create systemd service for auto-start
+      template:
+        src: bitcoin-tracker.service.j2
+        dest: /etc/systemd/system/bitcoin-tracker.service
+        mode: '0644'
+      notify: restart bitcoin-tracker service
+
+    - name: Enable bitcoin-tracker service
+      systemd:
+        name: bitcoin-tracker
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Display success message
+      debug:
+        msg: |
+           Bitcoin Price Tracker deployed successfully!
+          
+           Main application: Running in Docker container
+          
+           To view logs: docker-compose logs -f bitcoin-tracker
+           To stop: docker-compose down
+           To restart: docker-compose restart
+
+  handlers:
+    - name: restart bitcoin-tracker service
+      systemd:
+        name: bitcoin-tracker
+        state: restarted
