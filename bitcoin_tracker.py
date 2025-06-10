@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Bitcoin Price Tracker with Enhanced Error Handling and Context Management
+Bitcoin Price Tracker
 """
 
 import sqlite3
